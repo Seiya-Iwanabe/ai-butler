@@ -97,7 +97,7 @@ Ctrl+Cで終了します。
 
 ## デスクトップビジュアライザー
 
-`python -m ai_butler` を起動すると、既定でデスクトップの隅(既定は右下)に半透明のオーブ型
+`python -m ai_butler` を起動すると、既定でデスクトップ画面中央(720x720)に半透明のオーブ型
 ウィジェットが常に最前面で表示されます。
 
 - 待機中: ゆっくり呼吸するように明滅
@@ -107,7 +107,9 @@ Ctrl+Cで終了します。
 これは pywebview を使い、Canvas(`ai_butler/visualizer/orb.html`)で描いた見た目を透明・
 フレームレスなウィンドウに表示する形で実装しています。マイクを二重に掴むことはしておらず、
 ai_butler が既に扱っているマイク入力・音声出力のPCMデータをそのまま使ってスペクトラムを
-計算しています。
+計算しています。波形の動きは2段階で滑らかにしています: Python側でスペクトラム値を前回値と
+ブレンドしてノイズを抑え、Canvas側でも「立ち上がりは速く、収まりはゆっくり」というアタック/
+リリース型のイージングでアニメーションさせています。
 
 **フォールバック設計**: `pywebview` が無い/GUIバックエンド(macOSなら通常問題ありませんが、
 Linuxなら GTK か Qt が必要)が無い等でウィジェットの起動に失敗しても、ログに警告を出した上で
@@ -146,7 +148,7 @@ TTYが無いため、通常の許可プロンプトには誰も答えられま�
 | `CLAUDE_CODE_PERMISSION_MODE` | (未設定) | 上記「権限委譲について」参照 |
 | `CLAUDE_CODE_TIMEOUT_SEC` | `1800` | 1タスクのタイムアウト秒数 |
 | `AI_BUTLER_VISUALIZER` | `1` | デスクトップビジュアライザーの有効/無効 |
-| `AI_BUTLER_VISUALIZER_CORNER` | `bottom-right` | ウィジェットを表示する画面の隅 |
+| `AI_BUTLER_VISUALIZER_CORNER` | `center` | ウィジェットを表示する位置(`center`または`top-left`/`top-right`/`bottom-left`/`bottom-right`) |
 
 ## テスト
 
@@ -164,10 +166,16 @@ pytest -q
 - `tests/test_config.py`: 環境変数の読み込みとバリデーション
 - `tests/test_level_meter.py`: 音声レベル/スペクトラム計算(サイン波を生成し、狙った周波数帯に
   正しくピークが出るか等を検証)
+- `tests/test_hotkey_combo.py`: ホットキー文字列(`<alt>+<space>`等)のパース処理
+- `tests/test_visualizer_window.py`: ウィジェットの配置座標計算(中央寄せ/各隅、画面サイズ
+  取得に失敗した場合のフォールバック)
+- `tests/test_visualizer_controller.py`: 待機中/聞き取り中/発話中の状態遷移とスペクトラムの
+  ブレンド(平滑化)処理
 
-`ai_butler/audio_io.py`(マイク/スピーカー入出力そのもの)と `ai_butler/hotkey.py`(実際の
-キー入力検知)、`ai_butler/visualizer/window.py`(実際のウィンドウ表示)は実ハードウェア/GUI依存
-のため自動テストの対象外です。手元での動作確認をお願いします。
+`ai_butler/audio_io.py`(マイク/スピーカー入出力そのもの)、`ai_butler/hotkey.py`(実際の
+キー入力検知。macOS専用の`Quartz`に依存するためLinuxではimportすら確認できない)、
+`ai_butler/visualizer/window.py`(実際のウィンドウ表示そのもの)は実ハードウェア/GUI依存の
+ため自動テストの対象外です。手元での動作確認をお願いします。
 
 ## アーキテクチャと根拠
 

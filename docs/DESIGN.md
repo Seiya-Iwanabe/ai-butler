@@ -116,9 +116,19 @@ OpenAPI仕様から自動生成された型定義ファイル(`src/openai/types/
   保存するだけの軽量処理とし、実際にGUI(`window.evaluate_js`)を呼ぶのは専用のポンプスレッドが
   ~30fpsで行う。これはGUI/IPC呼び出しの遅延がリアルタイム音声パスに影響しないようにするため。
 - `window.py`: pywebviewで透明・フレームレス・最前面のウィンドウを作り、`orb.html`をロードする。
+  既定サイズは720x720、既定位置は画面中央(`corner="center"`)。配置座標の計算(中央寄せ・各隅・
+  画面サイズ取得失敗時のフォールバック)は`webview.screens`をモックして`tests/test_visualizer_window.py`
+  で検証している。
 - `orb.html`: 素のCanvas 2D。pywebview固有のAPIには依存せず、`window.setVisualizerState()`/
   `window.setVisualizerSpectrum()` というグローバル関数をPython側が `evaluate_js` 越しに呼ぶだけ
-  なので、単体でも(ヘッドレスブラウザでも)描画確認できる。
+  なので、単体でも(ヘッドレスブラウザでも)描画確認できる。キャンバスのサイズは固定値ではなく
+  `window.innerWidth`/`innerHeight`から読み取っており、`window.py`側のウィンドウサイズと
+  数値が食い違うバグを構造的に防いでいる(当初は`SIZE = 240`という固定値を持っていたが、
+  ウィジェットを3倍サイズに変更した際にこの食い違いに気づき、動的取得に直した)。
+  波形の動きは2段階で平滑化している: `controller.py`側でPythonが新しいスペクトラム値を
+  前回値とブレンド(`BAND_SMOOTHING`、指数移動平均)してから送り、`orb.html`側でも
+  「立ち上がり(ATTACK)は速く、収まり(RELEASE)は遅い」アタック/リリース型のイージングを
+  かけている。前者はFFTの生ノイズを抑え、後者はアニメーションそのものを滑らかにする役割分担。
 
 ### なぜPyObjC直描画ではなくpywebview+HTMLにしたか
 
