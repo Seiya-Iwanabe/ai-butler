@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>デヴィ</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    overflow: hidden;
+  }
+  canvas {
+    display: block;
+  }
+</style>
+</head>
+<body>
+<canvas id="orb"></canvas>
+<script>
+(function () {
+  "use strict";
+
+  var canvas = document.getElementById("orb");
+  var ctx = canvas.getContext("2d");
+
+  var SIZE = 240;
+  var DPR = window.devicePixelRatio || 1;
+  canvas.width = SIZE * DPR;
+  canvas.height = SIZE * DPR;
+  canvas.style.width = SIZE + "px";
+  canvas.style.height = SIZE + "px";
+  ctx.scale(DPR, DPR);
+
+  var CENTER = SIZE / 2;
+  var BASE_RADIUS = SIZE * 0.28;
+  var NUM_BANDS = 12;
+  var SEGMENTS_PER_BAND = 6; // angular smoothing resolution around the ring
+
+  // state: "idle" | "listening" | "speaking". Driven from Python via
+  // window.setVisualizerState()/setVisualizerSpectrum() (see
+  // ai_butler/visualizer/window.py, which calls these through
+  // pywebview's evaluate_js). This file has no dependency on pywebview
+  // itself, so it also renders standalone in a plain browser.
+  var state = "idle";
+  var targetBands = new Array(NUM_BANDS).fill(0);
+  var displayBands = new Array(NUM_BANDS).fill(0);
+  var breathPhase = 0;
+
+  window.setVisualizerState = function (nextState) {
+    state = nextState;
+    if (nextState === "idle") {
+      targetBands = new Array(NUM_BANDS).fill(0);
+    }
+  };
+
+  window.setVisualizerSpectrum = function (bands) {
+    if (!Array.isArray(bands)) return;
+    var next = bands.slice(0, NUM_BANDS);
+    while (next.length < NUM_BANDS) next.push(0);
+    targetBands = next;
+  };
+
+  function colorFor(currentState) {
+    switch (currentState) {
+      case "speaking":
+        return { core: "210, 245, 255", glow: "80, 200, 255" };
+      case "listening":
+        return { core: "220, 255, 240", glow: "90, 255, 190" };
+      default:
+        return { core: "190, 210, 255", glow: "90, 130, 255" };
+    }
+  }
+
+  function maxOf(arr) {
+    var m = 0;
+    for (var i = 0; i < arr.length; i++) if (arr[i] > m) m = arr[i];
+    return m;
+  }
+
+  function drawRing(radiusFn, colors, glowStrength) {
+    var totalPoints = NUM_BANDS * SEGMENTS_PER_BAND;
+    ctx.beginPath();
+    for (var i = 0; i <= totalPoints; i++) {
+      var angle = (i / totalPoints) * Math.PI * 2;
+      var r = radiusFn(angle, i);
+      var x = CENTER + Math.cos(angle) * r;
+      var y = CENTER + Math.sin(angle) * r;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+
+    ctx.save();
+    ctx.shadowColor = "rgba(" + colors.glow + ", 0.9)";
+    ctx.shadowBlur = glowStrength;
+    ctx.strokeStyle = "rgba(" + colors.core + ", 0.95)";
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function frame() {
+    ctx.clearRect(0, 0, SIZE, SIZE);
+
+    // Ease displayed bands toward the latest target so motion stays smooth
+    // regardless of how often Python pushes new spectrum data (~30fps).
+    for (var i = 0; i < NUM_BANDS; i++) {
+      displayBands[i] += (targetBands[i] - displayBands[i]) * 0.25;
+    }
+
+    breathPhase += 0.02;
+    var breath = state === "idle" ? Math.sin(breathPhase) * 0.5 + 0.5 : 0;
+    var peak = maxOf(displayBands);
+
+    var colors = colorFor(state);
+    var glowStrength = state === "idle" ? 14 + breath * 10 : 18 + peak * 26;
+
+    function radiusFn(angle, i) {
+      if (state === "idle") {
+        return BASE_RADIUS + breath * 4;
+      }
+      var bandIndex = Math.floor(i / SEGMENTS_PER_BAND) % NUM_BANDS;
+      var nextIndex = (bandIndex + 1) % NUM_BANDS;
+      var t = (i % SEGMENTS_PER_BAND) / SEGMENTS_PER_BAND;
+      var level = displayBands[bandIndex] * (1 - t) + displayBands[nextIndex] * t;
+      return BASE_RADIUS + level * (SIZE * 0.16);
+    }
+
+    drawRing(radiusFn, colors, glowStrength);
+
+    var coreRadius = BASE_RADIUS * (0.35 + breath * 0.05 + peak * 0.15);
+    var gradient = ctx.createRadialGradient(CENTER, CENTER, 0, CENTER, CENTER, coreRadius);
+    gradient.addColorStop(0, "rgba(" + colors.core + ", 0.55)");
+    gradient.addColorStop(1, "rgba(" + colors.core + ", 0)");
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(CENTER, CENTER, coreRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

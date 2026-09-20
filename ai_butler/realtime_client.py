@@ -16,6 +16,7 @@ from .claude_bridge import ClaudeCodeError, run_claude_code
 from .config import Config
 from .mic_gate import MicGate
 from .persona import PERSONA_INSTRUCTIONS
+from .visualizer.controller import NullVisualizerController, VisualizerControllerBase
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +33,12 @@ class RealtimeSession:
         config: Config,
         mic_gate: MicGate,
         speaker_write: Callable[[bytes], Awaitable[None]],
+        visualizer: Optional[VisualizerControllerBase] = None,
     ) -> None:
         self._config = config
         self._mic_gate = mic_gate
         self._speaker_write = speaker_write
+        self._visualizer = visualizer if visualizer is not None else NullVisualizerController()
         self._ws: Optional[ClientConnection] = None
         self._speaking = False
 
@@ -90,11 +93,14 @@ class RealtimeSession:
                 self._mic_gate.on_playback_started()
             delta_b64 = event.get("delta", "")
             if delta_b64:
-                await self._speaker_write(base64.b64decode(delta_b64))
+                pcm = base64.b64decode(delta_b64)
+                await self._speaker_write(pcm)
+                self._visualizer.report_output_level(pcm)
 
         elif etype == "response.output_audio.done":
             self._speaking = False
             self._mic_gate.on_playback_finished(asyncio.get_running_loop())
+            self._visualizer.mark_output_done()
 
         elif etype == "response.function_call_arguments.done":
             call_id = event.get("call_id")

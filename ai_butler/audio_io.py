@@ -14,6 +14,7 @@ from typing import AsyncIterator, Callable, Optional
 import sounddevice as sd
 
 from .config import REALTIME_SAMPLE_RATE
+from .visualizer.controller import NullVisualizerController, VisualizerControllerBase
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +31,16 @@ class MicStream:
     speaking) without tearing down and restarting the underlying stream.
     """
 
-    def __init__(self, *, device: Optional[str], should_capture: Callable[[], bool]) -> None:
+    def __init__(
+        self,
+        *,
+        device: Optional[str],
+        should_capture: Callable[[], bool],
+        visualizer: Optional[VisualizerControllerBase] = None,
+    ) -> None:
         self._device = device
         self._should_capture = should_capture
+        self._visualizer = visualizer if visualizer is not None else NullVisualizerController()
         self._queue: "asyncio.Queue[bytes]" = asyncio.Queue(maxsize=50)
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._stream: Optional[sd.RawInputStream] = None
@@ -46,6 +54,7 @@ class MicStream:
         if loop is None:
             return
         data = bytes(indata)
+        self._visualizer.report_mic_level(data)
         try:
             loop.call_soon_threadsafe(self._put_nowait_safe, data)
         except RuntimeError:
