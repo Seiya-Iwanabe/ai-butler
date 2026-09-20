@@ -38,7 +38,17 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-# .env を開いて OPENAI_API_KEY を設定
+```
+
+`OPENAI_API_KEY` は **チャットに貼らず**、`.env` を手編集もせず、`scripts/set_openai_key.sh` を
+使って設定してください。クリップボード経由で読み取り、`.env` に保存し、パーミッションを
+`600` に制限し、クリップボードを消去したうえでOpenAI APIへの接続テストまで行います
+(キーの中身はスクリプトの出力にも一切出しません)。
+
+```bash
+# 1. OpenAI APIキーをクリップボードにコピー
+# 2. 実行:
+./scripts/set_openai_key.sh
 ```
 
 macOSの場合、PortAudio(sounddeviceの依存)は Homebrew で入ります。
