@@ -1,0 +1,9 @@
+[project]
+name = "ai-butler"
+version = "0.1.0"
+description = "OpenAI Realtime API (gpt-realtime-2.1) voice front-end that hands tasks off to Claude Code"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
