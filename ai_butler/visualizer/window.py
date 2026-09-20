@@ -31,8 +31,8 @@ logger = logging.getLogger(__name__)
 
 ORB_HTML = Path(__file__).parent / "orb.html"
 
-DEFAULT_WIDTH = 240
-DEFAULT_HEIGHT = 240
+DEFAULT_WIDTH = 720
+DEFAULT_HEIGHT = 720
 DEFAULT_MARGIN = 24
 
 
@@ -42,7 +42,7 @@ class VisualizerWindow:
         *,
         width: int = DEFAULT_WIDTH,
         height: int = DEFAULT_HEIGHT,
-        corner: str = "bottom-right",
+        corner: str = "center",
         margin: int = DEFAULT_MARGIN,
     ) -> None:
         self._width = width
@@ -79,6 +79,9 @@ class VisualizerWindow:
             )
             return (self._margin, self._margin)
 
+        if self._corner == "center":
+            return ((sw - self._width) // 2, (sh - self._height) // 2)
+
         x, y = self._margin, self._margin
         if "right" in self._corner:
             x = sw - self._width - self._margin
@@ -86,7 +89,7 @@ class VisualizerWindow:
             y = sh - self._height - self._margin
         return (x, y)
 
-    def _place_in_corner(self) -> None:
+    def _place_window(self) -> None:
         x, y = self._initial_geometry()
         try:
             self._window.move(x, y)
@@ -102,7 +105,7 @@ class VisualizerWindow:
         # underway so close() below knows not to attempt it in that case.
         self._started = True
         try:
-            webview.start(self._place_in_corner, debug=False)
+            webview.start(self._place_window, debug=False)
         except Exception:
             self._started = False
             raise

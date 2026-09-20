@@ -26,7 +26,10 @@
   var canvas = document.getElementById("orb");
   var ctx = canvas.getContext("2d");
 
-  var SIZE = 240;
+  // Sized to whatever window pywebview actually created (see
+  // ai_butler/visualizer/window.py's width/height), not a fixed constant,
+  // so the two can't drift out of sync with each other.
+  var SIZE = Math.min(window.innerWidth, window.innerHeight) || 240;
   var DPR = window.devicePixelRatio || 1;
   canvas.width = SIZE * DPR;
   canvas.height = SIZE * DPR;
@@ -37,7 +40,15 @@
   var CENTER = SIZE / 2;
   var BASE_RADIUS = SIZE * 0.28;
   var NUM_BANDS = 12;
-  var SEGMENTS_PER_BAND = 6; // angular smoothing resolution around the ring
+  var SEGMENTS_PER_BAND = 10; // angular smoothing resolution around the ring
+
+  // Temporal smoothing of the ring's reaction to new spectrum data: fast
+  // attack (rises quickly toward a louder target) but a slower release
+  // (falls back gradually), which reads as a much more natural, less
+  // jittery pulse than symmetric easing -- the standard technique for
+  // audio-reactive visualizers.
+  var ATTACK = 0.35;
+  var RELEASE = 0.06;
 
   // state: "idle" | "listening" | "speaking". Driven from Python via
   // window.setVisualizerState()/setVisualizerSpectrum() (see
@@ -105,10 +116,12 @@
   function frame() {
     ctx.clearRect(0, 0, SIZE, SIZE);
 
-    // Ease displayed bands toward the latest target so motion stays smooth
-    // regardless of how often Python pushes new spectrum data (~30fps).
+    // Ease displayed bands toward the latest target (attack/release, see
+    // above) so motion stays smooth regardless of how often Python pushes
+    // new spectrum data (~30fps).
     for (var i = 0; i < NUM_BANDS; i++) {
-      displayBands[i] += (targetBands[i] - displayBands[i]) * 0.25;
+      var rate = targetBands[i] > displayBands[i] ? ATTACK : RELEASE;
+      displayBands[i] += (targetBands[i] - displayBands[i]) * rate;
     }
 
     breathPhase += 0.02;

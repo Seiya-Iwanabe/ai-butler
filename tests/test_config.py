@@ -21,6 +21,8 @@ def test_defaults():
     assert config.claude_permission_mode is None
     assert config.claude_extra_args == ()
     assert config.claude_timeout_sec == 1800
+    assert config.visualizer_enabled is True
+    assert config.visualizer_corner == "center"
 
 
 def test_invalid_voice_raises():
@@ -50,6 +52,27 @@ def test_claude_command_and_extra_args_are_shell_split():
     )
     assert config.claude_command == ("/usr/local/bin/claude", "--bare")
     assert config.claude_extra_args == ("--add-dir", "/tmp/foo", "--add-dir", "/tmp/bar baz")
+
+
+def test_invalid_visualizer_corner_raises():
+    with pytest.raises(ConfigError, match="AI_BUTLER_VISUALIZER_CORNER"):
+        Config.load(
+            env={"OPENAI_API_KEY": "sk-test", "AI_BUTLER_VISUALIZER_CORNER": "middle"},
+            load_env_file=False,
+        )
+
+
+def test_visualizer_can_be_disabled_and_repositioned():
+    config = Config.load(
+        env={
+            "OPENAI_API_KEY": "sk-test",
+            "AI_BUTLER_VISUALIZER": "0",
+            "AI_BUTLER_VISUALIZER_CORNER": "bottom-right",
+        },
+        load_env_file=False,
+    )
+    assert config.visualizer_enabled is False
+    assert config.visualizer_corner == "bottom-right"
 
 
 def test_custom_int_and_permission_mode():

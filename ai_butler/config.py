@@ -25,7 +25,11 @@ VALID_PERMISSION_MODES = frozenset(
     {"acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"}
 )
 
-VALID_VISUALIZER_CORNERS = frozenset({"top-left", "top-right", "bottom-left", "bottom-right"})
+# "center" isn't a corner, but lives in the same AI_BUTLER_VISUALIZER_CORNER
+# setting to avoid a second env var for what's really one "where" choice.
+VALID_VISUALIZER_CORNERS = frozenset(
+    {"center", "top-left", "top-right", "bottom-left", "bottom-right"}
+)
 
 
 class ConfigError(RuntimeError):
@@ -96,7 +100,7 @@ class Config:
             raise ConfigError("CLAUDE_CODE_COMMAND が空です。")
         claude_extra_args = tuple(shlex.split(source.get("CLAUDE_CODE_EXTRA_ARGS", "")))
 
-        visualizer_corner = source.get("AI_BUTLER_VISUALIZER_CORNER", "bottom-right").strip()
+        visualizer_corner = source.get("AI_BUTLER_VISUALIZER_CORNER", "center").strip()
         if visualizer_corner not in VALID_VISUALIZER_CORNERS:
             raise ConfigError(
                 f"AI_BUTLER_VISUALIZER_CORNER='{visualizer_corner}' は未知の位置です。"

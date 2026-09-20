@@ -22,6 +22,17 @@ PUMP_INTERVAL_SEC = 1 / 30
 LISTENING_IDLE_TIMEOUT_SEC = 0.35
 NUM_BANDS = 12
 
+# How much each new spectrum reading counts vs. the previous smoothed
+# value (0..1; higher = more reactive, lower = smoother/laggier). This is
+# a first smoothing pass over raw per-chunk FFT noise; orb.html applies a
+# second, separate attack/release smoothing on top for the actual
+# frame-to-frame animation.
+BAND_SMOOTHING = 0.5
+
+
+def _blend(old: List[float], new: List[float], factor: float) -> List[float]:
+    return [o + (n - o) * factor for o, n in zip(old, new)]
+
 
 class VisualizerControllerBase(Protocol):
     def start(self) -> None: ...
@@ -103,13 +114,13 @@ class VisualizerController:
             self._last_mic_activity = now
             if self._mode != "speaking":
                 self._mode = "listening"
-                self._bands = bands
+                self._bands = _blend(self._bands, bands, BAND_SMOOTHING)
 
     def report_output_level(self, pcm_bytes: bytes) -> None:
         bands = level_meter.spectrum_bands(pcm_bytes, num_bands=NUM_BANDS)
         with self._lock:
             self._mode = "speaking"
-            self._bands = bands
+            self._bands = _blend(self._bands, bands, BAND_SMOOTHING)
 
     def mark_output_done(self) -> None:
         now = time.monotonic()
