@@ -1,12 +1,16 @@
 websockets>=13.0
 sounddevice>=0.4.6
-pynput>=1.7.6
 python-dotenv>=1.0.1
 numpy>=1.26
+
+# Global hotkey listener (ai_butler/hotkey.py, macOS only). Not pynput --
+# see hotkey.py's docstring for why (a confirmed TSM/main-thread crash when
+# combined with the pywebview visualizer below).
+pyobjc-framework-Quartz>=10.0 ; sys_platform == "darwin"
 
 # Desktop visualizer widget (optional: falls back to disabled automatically
 # if unavailable -- see ai_butler/visualizer/__init__.py). pywebview's macOS
 # backend additionally needs pyobjc-framework-WebKit, which isn't pulled in
-# automatically by pynput's pyobjc dependencies.
+# automatically by its own dependencies.
 pywebview>=5.0
 pyobjc-framework-WebKit>=10.0 ; sys_platform == "darwin"
