@@ -25,6 +25,8 @@ VALID_PERMISSION_MODES = frozenset(
     {"acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"}
 )
 
+VALID_VISUALIZER_CORNERS = frozenset({"top-left", "top-right", "bottom-left", "bottom-right"})
+
 
 class ConfigError(RuntimeError):
     """Raised when required configuration is missing or invalid."""
@@ -40,6 +42,13 @@ def _env_int(source: Mapping[str, str], name: str, default: int) -> int:
         raise ConfigError(f"{name}='{raw}' は整数として解釈できません。") from exc
 
 
+def _env_bool(source: Mapping[str, str], name: str, default: bool) -> bool:
+    raw = source.get(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
 @dataclass(frozen=True)
 class Config:
     openai_api_key: str
@@ -53,6 +62,8 @@ class Config:
     claude_permission_mode: Optional[str]
     claude_extra_args: Sequence[str]
     claude_timeout_sec: int
+    visualizer_enabled: bool
+    visualizer_corner: str
 
     @staticmethod
     def load(env: Optional[Mapping[str, str]] = None, *, load_env_file: bool = True) -> "Config":
@@ -85,6 +96,13 @@ class Config:
             raise ConfigError("CLAUDE_CODE_COMMAND が空です。")
         claude_extra_args = tuple(shlex.split(source.get("CLAUDE_CODE_EXTRA_ARGS", "")))
 
+        visualizer_corner = source.get("AI_BUTLER_VISUALIZER_CORNER", "bottom-right").strip()
+        if visualizer_corner not in VALID_VISUALIZER_CORNERS:
+            raise ConfigError(
+                f"AI_BUTLER_VISUALIZER_CORNER='{visualizer_corner}' は未知の位置です。"
+                f"指定できる値: {', '.join(sorted(VALID_VISUALIZER_CORNERS))}"
+            )
+
         return Config(
             openai_api_key=api_key,
             realtime_model=source.get("OPENAI_REALTIME_MODEL", "gpt-realtime-2.1").strip(),
@@ -97,4 +115,6 @@ class Config:
             claude_permission_mode=permission_mode,
             claude_extra_args=claude_extra_args,
             claude_timeout_sec=_env_int(source, "CLAUDE_CODE_TIMEOUT_SEC", 1800),
+            visualizer_enabled=_env_bool(source, "AI_BUTLER_VISUALIZER", True),
+            visualizer_corner=visualizer_corner,
         )

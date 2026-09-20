@@ -101,3 +101,58 @@ OpenAPI仕様から自動生成された型定義ファイル(`src/openai/types/
   (Realtime APIは同時に1つしかデフォルト会話に書き込めない制約があるため)。頻度は
   低いと見込むが、実運用で頻発するようであれば、ツール結果の `response.create` を
   「進行中のレスポンスが無いことを確認してから送る」ようにキューイングする改修が必要。
+
+## デスクトップビジュアライザー(`ai_butler/visualizer/`)
+
+### 構成
+
+- `level_meter.py`: PCM16バイト列からRMS/周波数帯スペクトラムを計算する純粋関数群。I/O無し、
+  numpyのFFTのみ使用。サイン波を自作してユニットテストで検証(`tests/test_level_meter.py`)。
+- `controller.py`: 音声コールバックのスレッド(PortAudioのコールバックスレッド、asyncioの
+  イベントループ)から呼ばれる `report_mic_level`/`report_output_level` はロックを取って数値を
+  保存するだけの軽量処理とし、実際にGUI(`window.evaluate_js`)を呼ぶのは専用のポンプスレッドが
+  ~30fpsで行う。これはGUI/IPC呼び出しの遅延がリアルタイム音声パスに影響しないようにするため。
+- `window.py`: pywebviewで透明・フレームレス・最前面のウィンドウを作り、`orb.html`をロードする。
+- `orb.html`: 素のCanvas 2D。pywebview固有のAPIには依存せず、`window.setVisualizerState()`/
+  `window.setVisualizerSpectrum()` というグローバル関数をPython側が `evaluate_js` 越しに呼ぶだけ
+  なので、単体でも(ヘッドレスブラウザでも)描画確認できる。
+
+### なぜPyObjC直描画ではなくpywebview+HTMLにしたか
+
+macOS実機が無い開発環境で、実際に「動くところを見て確認する」ことを優先した。pywebview+Canvasなら
+Playwrightのヘッドレスブラウザで実際にレンダリングしてスクリーンショットを撮って確認できるが、
+PyObJC(Quartz)で直接描画するコードは、この環境では構文チェックしかできない。
+
+### 実際に見つかった・直したバグ(この開発環境での動作確認で発見)
+
+このサンドボックスにはmacOSが無いため「本番相当の確認」はできないが、Linux+Xvfb+pywebview
+(GTK/QTバックエンドは未インストール)の組み合わせで実際にコードを動かし、以下の実バグを発見・修正した:
+
+1. `background_color="#00000000"`(8桁・アルファ付き)を渡していたが、pywebviewは
+   `#RRGGBB`(6桁)のみを受け付け、`ValueError`で即座に落ちる仕様だった。透明化は別の
+   `transparent=True` 引数が担当しており、`background_color`はロード直後に一瞬映る
+   プレースホルダー色でしかない。`#000000`に修正。
+2. `webview.start()` が(GTK/QTどちらのGUIバックエンドも無い環境で)`WebViewException` を
+   送出するケースが、`app.py`の`main()`で捕捉されておらず、デヴィの音声ループごと
+   プロセスがクラッシュしていた。`run_blocking()`周りを try/except で囲み、失敗時は
+   バックグラウンドの非同期パイプラインをそのままヘッドレス動作として待ち受ける形に修正。
+3. 上記2のフォールバック時、`_run_pipeline`のfinallyが呼ぶ`visualizer.close_window_if_open()`
+   →`window.destroy()`が、一度も`webview.start()`が成功していないウィンドウに対しては
+   **無限にハングする**ことが分かった(GUIループが無いため`destroy`要求を処理する相手がいない)。
+   `VisualizerWindow`に`_started`フラグを持たせ、`run()`が実際に開始できた場合のみ
+   `close()`が`destroy()`を呼ぶように修正。
+4. `spectrum_bands()`の各周波数帯の集計に`.mean()`を使っていたところ、このFFT分解能
+   (24000Hz/N個のサンプル)では1帯域が100ビン超に及ぶことがあり、純音のように1〜2ビンに
+   エネルギーが集中する信号だと平均を取ることでほぼゼロまで薄まってしまうバグがあった
+   (ユニットテストで「3kHzの純音を入れても対応する帯域がほとんど反応しない」形で発覚)。
+   `.max()`(帯域内で最も強い成分を採用)に変更。バーグラフ型スペクトラムビジュアライザーの
+   一般的な実装とも一致する。
+
+### 未検証のまま残っている部分
+
+- macOS実機での実際の見た目・常に最前面・透明ウィンドウとしての挙動そのもの。
+- ウィジェットを実際に閉じた時に`on_closed`が発火し、デヴィ本体が正しく終了するか
+  (Linux+GUIバックエンド無しの環境では`webview.start()`自体が即座に失敗するため、
+  「ウィンドウが実際に開いて、後から閉じられる」という正常系そのものが検証できていない)。
+- `window.evaluate_js`/`window.destroy()`がpywebviewのドキュメント通り本当にどのスレッドから
+  呼んでも安全か。
