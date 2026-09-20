@@ -23,8 +23,11 @@
   ミュート」という2つの独立したスイッチを持つ状態機械。両方が「開いて」いる時だけマイクの
   フレームを実際にAPIへ送る(`ai_butler/audio_io.py` のコールバックが毎フレーム
   `should_capture()` を見る)。
-- `ai_butler/hotkey.py`: `pynput.keyboard.GlobalHotKeys` でOSレベルのキー入力を監視し、
-  別スレッドから `loop.call_soon_threadsafe` でasyncio側に伝える。
+- `ai_butler/hotkey.py`: Quartzの `CGEventTapCreate` を直接使った自前実装でOSレベルのキー入力を
+  監視し、別スレッドから `loop.call_soon_threadsafe` でasyncio側に伝える。当初は
+  `pynput.keyboard.GlobalHotKeys` を使っていたが、ビジュアライザー追加後に実機で
+  クラッシュが判明し置き換えた — 詳細は本ファイル末尾「グローバルホットキーの実装を
+  pynputから置き換えた理由」を参照。
 - `ai_butler/persona.py`: デヴィのキャラクター設定(system instructions)。「開発タスクは
   自分でやらず必ず `run_claude_code` を呼ぶ」「呼ぶ時は先に所要時間の目安を一言言う」という
   行動契約をここで明文化している。時間の見積もりを別途コード側で計算していないのは、
@@ -156,3 +159,45 @@ PyObJC(Quartz)で直接描画するコードは、この環境では構文チェ
   「ウィンドウが実際に開いて、後から閉じられる」という正常系そのものが検証できていない)。
 - `window.evaluate_js`/`window.destroy()`がpywebviewのドキュメント通り本当にどのスレッドから
   呼んでも安全か。
+
+## グローバルホットキーの実装を pynput から置き換えた理由
+
+デスクトップビジュアライザー追加後、利用者の実機(macOS)で `python -m ai_butler` を起動すると
+TSM(Text Services Manager)のアサーションでクラッシュする不具合が報告された。原因を推測ではなく
+`pynput` 自体のソースコード(このリポジトリの venv にインストールされていたもの)を読んで特定した:
+
+1. `pynput/keyboard/_darwin.py` の `Listener._run()` は、リスナーを開始するたびに必ず
+   `with keycode_context() as context:` を実行する。
+2. `pynput/_util/darwin.py` の `keycode_context()` は `TISCopyCurrentKeyboardInputSource()` など
+   Carbonの Text Services Manager (TSM) の関数を呼び出す。これはキーコードを実際の文字列
+   (現在のキーボードレイアウトに応じた文字)に変換するために必要な処理。
+3. `Listener._run()` は **pynputが内部で新しく作るリスナー専用スレッド**の中で実行される
+   (`Listener`は`threading.Thread`のサブクラス)。つまり `.start()` をどのスレッドから呼んでも、
+   TSM呼び出し自体は常にpynputの内部スレッド(メインスレッドではない)で発生する。
+4. Appleの TSM は「メインスレッドからしか呼んではいけない」という制約を持つ。この制約は、
+   プロセス内に実際に動いている Cocoa アプリ(`NSApplication`)が存在する場合に厳格に
+   アサーションとして効いてくる。ai_butlerにビジュアライザー(pywebview)を追加したことで、
+   プロセスのメインスレッドに本物の `NSApplication` イベントループが立つようになり、
+   このアサーションが顕在化してクラッシュした、と考えられる(ビジュアライザー追加前は
+   `NSApplication` が存在しないヘッドレスなCLIプロセスだったため、同じpynputの実装でも
+   問題が表面化していなかった可能性が高い)。
+
+この根本原因はスレッドの呼び出し順序を工夫しても解決しない(TSM呼び出し自体がpynputの内部
+スレッドに固定されているため)。そのため、pynputの高水準API(`GlobalHotKeys`/`Listener`)を
+やめ、TSMを一切使わない自前実装に置き換えた:
+
+- `ai_butler/hotkey_combo.py`: ホットキー文字列(例: `<alt>+<space>`)を「修飾キーのビットマスク」
+  と「キーコード」に変換する純粋関数。Quartz依存なし、どの環境でもユニットテスト可能
+  (`tests/test_hotkey_combo.py`)。
+- `ai_butler/hotkey.py`: `Quartz.CGEventTapCreate` を直接使い、押されたキーの**物理的な
+  仮想キーコード**(`kVK_Space` = 49 など、キーボードレイアウトに依存しない macOS の
+  定数)と修飾キーのフラグビットだけを見て判定する。文字への変換が一切不要なため、TSMを
+  呼び出すコード自体が存在しない。
+
+この置き換えにより、ビジュアライザーと同時に使ってもTSMアサーションが起きる経路自体が
+無くなったはずだが、**このサンドボックスにはmacOSも `pyobjc-framework-Quartz` をビルドできる
+環境も無いため、修正後の動作そのものは実機で確認できていない**(`pyobjc-framework-Quartz`は
+`sw_vers`などmacOS専用ツールに依存しビルドすら失敗する)。`hotkey_combo.py`のパースロジックは
+自動テストで検証済みだが、`hotkey.py`自体は構文チェックのみで、importすら確認できていない
+(以前の`pynput`版は仮想ディスプレイXvfbを使えばLinuxでも一応importできたが、Quartzは
+純粋にmacOS専用でLinux上でビルドする方法が無いため、この点はむしろ以前より検証範囲が狭い)。
